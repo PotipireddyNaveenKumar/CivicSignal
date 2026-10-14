@@ -1,15 +1,29 @@
-import { PlusCircle, Search, X } from 'lucide-react';
+import { PlusCircle, Search, X, UserCheck, Shield } from 'lucide-react';
 
 export default function DashboardHeader({
   searchQuery,
   onSearchChange,
   onNavigateToSubmit,
   onPerformSearch,
+  userRole = 'CITIZEN',
+  onRoleChange,
 }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (onPerformSearch) {
       onPerformSearch();
+    }
+  };
+
+  const getRoleLabel = (role) => {
+    switch (role) {
+      case 'ADMIN':
+        return 'Municipal Administrator';
+      case 'RESOLVER':
+        return 'Authorized Field Resolver';
+      case 'CITIZEN':
+      default:
+        return 'Community Member (Citizen)';
     }
   };
 
@@ -24,6 +38,26 @@ export default function DashboardHeader({
           </p>
         </div>
         <div className="header-actions">
+          {/* Role Simulation Switcher */}
+          <div className="role-switcher-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.2rem' }}>
+              <Shield size={13} style={{ color: 'var(--green-700)' }} />
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--green-950)' }}>
+                Active Session Role
+              </span>
+            </div>
+            <select
+              className="role-select"
+              value={userRole}
+              onChange={(e) => onRoleChange && onRoleChange(e.target.value)}
+              aria-label="Switch active demonstration user role"
+            >
+              <option value="CITIZEN">👤 Community Member</option>
+              <option value="ADMIN">🏛️ Municipal Administrator</option>
+              <option value="RESOLVER">🔧 Field Resolver</option>
+            </select>
+          </div>
+
           <button
             type="button"
             className="btn-primary"
@@ -34,6 +68,14 @@ export default function DashboardHeader({
             <span>Report an Issue</span>
           </button>
         </div>
+      </div>
+
+      {/* Role Notice Banner */}
+      <div className="role-notice-banner">
+        <UserCheck size={14} style={{ flexShrink: 0 }} />
+        <span>
+          <strong>Operating as: {getRoleLabel(userRole)}.</strong> Role-based triage permissions active. (Prototype simulation — production deployments require server-verified tokens).
+        </span>
       </div>
 
       <form className="header-search-bar" onSubmit={handleSubmit} role="search">

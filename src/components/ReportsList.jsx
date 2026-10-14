@@ -336,12 +336,22 @@ export default function ReportsList({
                   <div className="report-card-actions">
                     <button
                       type="button"
-                      className="btn-secondary btn-sm"
+                      className={report.supportedBy?.includes('citizen-local') ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
                       onClick={() => onUpvote(report.id)}
-                      aria-label={`Endorse report ${report.id}. Current endorsements: ${report.upvotes || 0}`}
+                      disabled={report.supportedBy?.includes('citizen-local')}
+                      title={
+                        report.supportedBy?.includes('citizen-local')
+                          ? 'You have already confirmed this issue.'
+                          : 'I have this problem too (+1 support)'
+                      }
+                      aria-label={`Support report ${report.id}. Current supporters: ${report.supportCount || report.upvotes || 0}`}
                     >
                       <ThumbsUp size={13} aria-hidden="true" />
-                      <span>{report.upvotes || 0}</span>
+                      <span>
+                        {report.supportedBy?.includes('citizen-local')
+                          ? `✓ ${report.supportCount || report.upvotes || 1}`
+                          : report.supportCount || report.upvotes || 0}
+                      </span>
                     </button>
 
                     <button

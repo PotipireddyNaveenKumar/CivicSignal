@@ -1,20 +1,47 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   X,
   MapPin,
   Calendar,
   ThumbsUp,
   ShieldCheck,
+  CheckCircle,
+  Truck,
+  UserCheck,
+  FileCheck2,
+  Wrench,
 } from 'lucide-react';
+
+const DEPARTMENTS = [
+  'Traffic Engineering & Electrical Signals',
+  'Road Maintenance & Asphalt Operations',
+  'Sanitation, Waste & Code Compliance',
+  'Civil Works & ADA Pedestrian Division',
+  'Parks, Forestry & Urban Environment',
+  'Municipal Water & Drainage Facilities',
+];
 
 export default function ReportDetailModal({
   report,
   onClose,
   onUpdateStatus,
   onUpvote,
+  onAssignReport,
+  onResolveReport,
+  userRole = 'CITIZEN',
 }) {
   const modalRef = useRef(null);
   const closeButtonRef = useRef(null);
+
+  // Administrative assignment state
+  const [assignDept, setAssignDept] = useState(DEPARTMENTS[0]);
+  const [resolverName, setResolverName] = useState('Rapid Response Unit #4');
+  const [assignNotes, setAssignNotes] = useState('');
+  const [showAssignForm, setShowAssignForm] = useState(false);
+
+  // Resolver completion state
+  const [resolutionText, setResolutionText] = useState('');
+  const [showResolveForm, setShowResolveForm] = useState(false);
 
   // Close on Escape key press
   useEffect(() => {
@@ -34,11 +61,45 @@ export default function ReportDetailModal({
 
   const priority = report.priority || {};
   const factors = priority.factors || [];
+  const supporters = Array.isArray(report.supportedBy) ? report.supportedBy : [];
+  const isSupportedByLocalUser = supporters.includes('citizen-local');
+  const supportCount = report.supportCount || report.upvotes || 1;
 
   const handleStatusChange = (e) => {
     const newStatus = e.target.value;
     if (newStatus !== report.status) {
       onUpdateStatus(report.id, newStatus);
+    }
+  };
+
+  const handleExecuteAssign = (e) => {
+    e.preventDefault();
+    if (onAssignReport) {
+      onAssignReport(report.id, {
+        department: assignDept,
+        resolverName: resolverName.trim() || 'Assigned Field Crew',
+        notes: assignNotes.trim(),
+        adminName: 'Municipal Operations Dispatch',
+      });
+      setShowAssignForm(false);
+    }
+  };
+
+  const handleExecuteStartWork = () => {
+    if (onUpdateStatus) {
+      onUpdateStatus(report.id, 'In Progress', 'Field unit arrived on site and commenced remediation.');
+    }
+  };
+
+  const handleExecuteResolve = (e) => {
+    e.preventDefault();
+    if (onResolveReport) {
+      onResolveReport(report.id, {
+        status: 'Resolved',
+        resolutionNotes: resolutionText.trim() || 'Work verified complete and safety perimeter restored.',
+        resolverName: report.assignedTo?.resolverName || 'Field Operations',
+      });
+      setShowResolveForm(false);
     }
   };
 
@@ -82,7 +143,7 @@ export default function ReportDetailModal({
             </span>
             <span className={`priority-pill priority-pill-${priority.tierKey || 'low'}`}>
               <span className="priority-dot" />
-              {priority.tierLabel || 'Standard'}
+              {priority.tierLabel || 'Standard'} ({priority.score || 50}/100)
             </span>
           </div>
 
@@ -112,6 +173,11 @@ export default function ReportDetailModal({
                 <Calendar size={15} />
                 {formattedDate}
               </span>
+              {report.coordinates && (
+                <span style={{ fontSize: '0.8rem', fontFamily: 'monospace', color: 'var(--green-800)' }}>
+                  📍 [{report.coordinates.lat.toFixed(4)}, {report.coordinates.lng.toFixed(4)}]
+                </span>
+              )}
             </div>
           </div>
 
@@ -120,6 +186,150 @@ export default function ReportDetailModal({
             <h3 style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>Condition Description</h3>
             <p style={{ lineHeight: 1.6 }}>{report.description}</p>
           </div>
+
+          {/* Assignment Information Banner */}
+          {report.assignedTo && (
+            <div className="workflow-card workflow-card-assigned">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 4 }}>
+                <Truck size={16} style={{ color: 'var(--green-800)' }} />
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--green-950)' }}>
+                  Assigned Operational Unit
+                </span>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--green-900)' }}>
+                <strong>{report.assignedTo.department}</strong> — {report.assignedTo.resolverName}
+              </div>
+              {report.assignedTo.notes && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
+                  Instructions: {report.assignedTo.notes}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Resolution Summary Banner */}
+          {report.status === 'Resolved' && (
+            <div className="workflow-card workflow-card-resolved">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 4 }}>
+                <CheckCircle size={16} style={{ color: '#15803d' }} />
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#14532d' }}>
+                  Issue Resolved & Verified
+                </span>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#166534' }}>
+                {report.resolutionNotes || 'Remediation completed by authorized municipal department.'}
+              </div>
+            </div>
+          )}
+
+          {/* Role-Specific Action Triggers */}
+          {userRole === 'ADMIN' && (
+            <section className="role-action-section">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <UserCheck size={16} style={{ color: 'var(--green-800)' }} />
+                  <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Administrator Dispatch Console</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn-outline btn-sm"
+                  onClick={() => setShowAssignForm(!showAssignForm)}
+                >
+                  {showAssignForm ? 'Hide Assignment' : report.assignedTo ? 'Reassign Unit' : 'Assign Resolver'}
+                </button>
+              </div>
+
+              {showAssignForm && (
+                <form onSubmit={handleExecuteAssign} className="role-subform">
+                  <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Target Department</label>
+                    <select
+                      className="form-select form-select-sm"
+                      value={assignDept}
+                      onChange={(e) => setAssignDept(e.target.value)}
+                    >
+                      {DEPARTMENTS.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Assigned Field Crew / Resolver</label>
+                    <input
+                      type="text"
+                      className="form-input form-input-sm"
+                      value={resolverName}
+                      onChange={(e) => setResolverName(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Dispatch & Safety Notes</label>
+                    <input
+                      type="text"
+                      className="form-input form-input-sm"
+                      placeholder="e.g. Expedited response required; coordinate with traffic police"
+                      value={assignNotes}
+                      onChange={(e) => setAssignNotes(e.target.value)}
+                    />
+                  </div>
+                  <button type="submit" className="btn-primary btn-sm" style={{ marginTop: '0.25rem' }}>
+                    <Truck size={14} /> Confirm Assignment
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
+
+          {userRole === 'RESOLVER' && (
+            <section className="role-action-section">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Wrench size={16} style={{ color: 'var(--green-800)' }} />
+                  <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Field Resolver Actions</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {report.status !== 'In Progress' && report.status !== 'Resolved' && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={handleExecuteStartWork}
+                  >
+                    <Wrench size={14} /> Start Work (Mark In Progress)
+                  </button>
+                )}
+                {report.status !== 'Resolved' && (
+                  <button
+                    type="button"
+                    className="btn-outline btn-sm"
+                    onClick={() => setShowResolveForm(!showResolveForm)}
+                  >
+                    <FileCheck2 size={14} /> Complete Work & Record Resolution
+                  </button>
+                )}
+              </div>
+
+              {showResolveForm && (
+                <form onSubmit={handleExecuteResolve} className="role-subform" style={{ marginTop: '0.5rem' }}>
+                  <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Resolution Summary & Findings</label>
+                    <textarea
+                      className="form-textarea form-textarea-sm"
+                      rows={3}
+                      placeholder="Describe the physical work done, materials replaced, or safety tests conducted..."
+                      value={resolutionText}
+                      onChange={(e) => setResolutionText(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="btn-primary btn-sm">
+                    <CheckCircle size={14} /> Mark as Resolved
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
 
           {/* Photo attachment if available */}
           {report.photoUrl && (
@@ -248,37 +458,49 @@ export default function ReportDetailModal({
         </div>
 
         <div className="modal-footer">
-          {/* Status changer for demonstration testing */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <label htmlFor="modal-status-select" style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
-              Demonstration Status:
-            </label>
-            <select
-              id="modal-status-select"
-              className="filter-select"
-              value={report.status}
-              onChange={handleStatusChange}
-            >
-              <option value="Open">Open</option>
-              <option value="In Review">In Review</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Resolved">Resolved</option>
-            </select>
-          </div>
+          {/* Status changer for administrator */}
+          {userRole === 'ADMIN' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <label htmlFor="modal-status-select" style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                Status:
+              </label>
+              <select
+                id="modal-status-select"
+                className="filter-select"
+                value={report.status}
+                onChange={handleStatusChange}
+              >
+                <option value="Open">Open</option>
+                <option value="In Review">In Review</option>
+                <option value="Assigned">Assigned</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Resolved">Resolved</option>
+              </select>
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+              Current Status: <strong>{report.status}</strong>
+            </div>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {/* Community Support Button ("I have this problem too") */}
             <button
               type="button"
-              className="btn-secondary btn-sm"
+              className={isSupportedByLocalUser ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'}
               onClick={() => onUpvote(report.id)}
-              aria-label={`Endorse report. Current count: ${report.upvotes || 0}`}
+              disabled={isSupportedByLocalUser}
+              title={isSupportedByLocalUser ? 'You have already confirmed this issue.' : 'Endorse: I have this problem too.'}
             >
               <ThumbsUp size={14} aria-hidden="true" />
-              <span>Endorse ({report.upvotes || 0})</span>
+              <span>
+                {isSupportedByLocalUser ? `✓ Endorsed (${supportCount})` : `I have this problem too (${supportCount})`}
+              </span>
             </button>
+
             <button
               type="button"
-              className="btn-primary btn-sm"
+              className="btn-outline btn-sm"
               onClick={onClose}
             >
               Close

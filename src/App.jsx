@@ -4,23 +4,27 @@ import DashboardHeader from './components/DashboardHeader';
 import MetricsOverview from './components/MetricsOverview';
 import ReportsList from './components/ReportsList';
 import ReportForm from './components/ReportForm';
+import InteractiveMap from './components/InteractiveMap';
 import InsightsView from './components/InsightsView';
 import ReportDetailModal from './components/ReportDetailModal';
 import {
   getStoredReports,
   addReport,
   updateReportStatus,
-  toggleReportUpvote,
+  supportReport,
+  assignReport,
+  updateReportResolution,
   resetToDefaultReports,
 } from './utils/storage';
 import { Menu, ShieldCheck, PlusCircle } from 'lucide-react';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('overview'); // 'overview' | 'submit' | 'reports' | 'insights'
+  const [currentView, setCurrentView] = useState('overview'); // 'overview' | 'map' | 'submit' | 'reports' | 'insights'
   const [reports, setReports] = useState(getStoredReports);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedReportForModal, setSelectedReportForModal] = useState(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [userRole, setUserRole] = useState('CITIZEN'); // 'CITIZEN' | 'ADMIN' | 'RESOLVER'
 
   // Initial filter presets when navigating from metric cards
   const [reportFilterPreset, setReportFilterPreset] = useState({
@@ -45,16 +49,25 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Create new report
+  // Create new report with persistence validation
   const handleCreateReport = (reportData) => {
-    const { newReport, updatedReports } = addReport(reportData);
-    setReports(updatedReports);
-    return newReport;
+    try {
+      const { newReport, updatedReports } = addReport(reportData);
+      setReports(updatedReports);
+      return { success: true, report: newReport };
+    } catch (err) {
+      console.error('Failed to create and persist report:', err);
+      return {
+        success: false,
+        error: err?.message || 'Storage error occurred. Report could not be saved.',
+        isQuota: err?.name === 'StorageQuotaError',
+      };
+    }
   };
 
   // Update report status
-  const handleUpdateStatus = (id, newStatus) => {
-    const updated = updateReportStatus(id, newStatus);
+  const handleUpdateStatus = (id, newStatus, note = '') => {
+    const updated = updateReportStatus(id, newStatus, note);
     setReports(updated);
     if (selectedReportForModal && selectedReportForModal.id === id) {
       const refreshed = updated.find((r) => r.id === id);
@@ -62,9 +75,29 @@ export default function App() {
     }
   };
 
-  // Upvote report
-  const handleUpvote = (id) => {
-    const updated = toggleReportUpvote(id);
+  // Endorse report ("I have this problem too") with unique local user tracking
+  const handleSupportReport = (id) => {
+    const { reports: updated } = supportReport(id, 'citizen-local');
+    setReports(updated);
+    if (selectedReportForModal && selectedReportForModal.id === id) {
+      const refreshed = updated.find((r) => r.id === id);
+      setSelectedReportForModal(refreshed);
+    }
+  };
+
+  // Administrator assignment workflow
+  const handleAssignReport = (id, details) => {
+    const updated = assignReport(id, details);
+    setReports(updated);
+    if (selectedReportForModal && selectedReportForModal.id === id) {
+      const refreshed = updated.find((r) => r.id === id);
+      setSelectedReportForModal(refreshed);
+    }
+  };
+
+  // Resolver resolution workflow
+  const handleResolveReport = (id, details) => {
+    const updated = updateReportResolution(id, details);
     setReports(updated);
     if (selectedReportForModal && selectedReportForModal.id === id) {
       const refreshed = updated.find((r) => r.id === id);
@@ -158,6 +191,8 @@ export default function App() {
             onSearchChange={handleSearchChange}
             onNavigateToSubmit={() => handleNavigate('submit')}
             onPerformSearch={handlePerformSearch}
+            userRole={userRole}
+            onRoleChange={setUserRole}
           />
 
           {/* VIEW: OVERVIEW */}
@@ -177,12 +212,21 @@ export default function App() {
                   initialPriority="ALL"
                   initialStatus="ALL"
                   onSelectReport={(rep) => setSelectedReportForModal(rep)}
-                  onUpvote={handleUpvote}
+                  onUpvote={handleSupportReport}
                   onUpdateStatus={handleUpdateStatus}
                   onNavigateToSubmit={() => handleNavigate('submit')}
                 />
               </div>
             </div>
+          )}
+
+          {/* VIEW: INTERACTIVE OPERATIONS MAP */}
+          {currentView === 'map' && (
+            <InteractiveMap
+              reports={reports}
+              onSelectReport={(rep) => setSelectedReportForModal(rep)}
+              onNavigateToSubmit={() => handleNavigate('submit')}
+            />
           )}
 
           {/* VIEW: REPORT AN ISSUE */}
@@ -202,7 +246,7 @@ export default function App() {
               initialStatus={reportFilterPreset.status}
               initialPriority={reportFilterPreset.priority}
               onSelectReport={(rep) => setSelectedReportForModal(rep)}
-              onUpvote={handleUpvote}
+              onUpvote={handleSupportReport}
               onUpdateStatus={handleUpdateStatus}
               onNavigateToSubmit={() => handleNavigate('submit')}
             />
@@ -221,7 +265,10 @@ export default function App() {
           report={selectedReportForModal}
           onClose={() => setSelectedReportForModal(null)}
           onUpdateStatus={handleUpdateStatus}
-          onUpvote={handleUpvote}
+          onUpvote={handleSupportReport}
+          onAssignReport={handleAssignReport}
+          onResolveReport={handleResolveReport}
+          userRole={userRole}
         />
       )}
     </div>

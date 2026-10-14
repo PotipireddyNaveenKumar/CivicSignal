@@ -136,12 +136,40 @@ export const PRIORITY_TIERS = {
 };
 
 /**
+ * Maps unique citizen supporters to bounded community impact points.
+ * Explicitly bounded at 25 points maximum so popularity can never
+ * override physical safety risks.
+ *
+ * - 0 supporters: 0 pts
+ * - 1–2 supporters: 5 pts
+ * - 3–5 supporters: 10 pts
+ * - 6–10 supporters: 15 pts
+ * - 11–20 supporters: 20 pts
+ * - 21+ supporters: 25 pts
+ *
+ * @param {number} count Number of unique citizen endorsements
+ * @returns {number} Points (0-25)
+ */
+export function getCommunitySupportPoints(count = 0) {
+  const n = Math.max(0, parseInt(count, 10) || 0);
+  if (n >= 21) return 25;
+  if (n >= 11) return 20;
+  if (n >= 6) return 15;
+  if (n >= 3) return 10;
+  if (n >= 1) return 5;
+  return 0;
+}
+
+/**
  * Deterministically computes the priority score, tier, and full explanatory factors.
+ * Incorporates bounded community support without double-counting impact.
+ *
  * @param {Object} params
  * @param {string} params.category
  * @param {string} params.safetyRiskId
  * @param {string} params.urgencyId
  * @param {string} params.communityImpactId
+ * @param {number} [params.supportCount=0]
  * @returns {Object} Full explainable evaluation
  */
 export function calculatePriority({
@@ -149,13 +177,18 @@ export function calculatePriority({
   safetyRiskId = 'minor',
   urgencyId = 'routine',
   communityImpactId = 'isolated',
+  supportCount = 0,
 }) {
   const safetyOpt = SAFETY_RISK_OPTIONS.find((o) => o.id === safetyRiskId) || SAFETY_RISK_OPTIONS[0];
   const urgencyOpt = URGENCY_OPTIONS.find((o) => o.id === urgencyId) || URGENCY_OPTIONS[0];
   const impactOpt = COMMUNITY_IMPACT_OPTIONS.find((o) => o.id === communityImpactId) || COMMUNITY_IMPACT_OPTIONS[0];
   const categoryBase = CATEGORY_BASELINES[category] ?? 5;
 
-  const rawScore = safetyOpt.score + urgencyOpt.score + impactOpt.score + categoryBase;
+  // Bounded community impact calculation: blends base scope with citizen support (capped at 25)
+  const supportPoints = getCommunitySupportPoints(supportCount);
+  const effectiveCommunityScore = Math.min(25, Math.max(impactOpt.score, supportPoints));
+
+  const rawScore = safetyOpt.score + urgencyOpt.score + effectiveCommunityScore + categoryBase;
   const score = Math.min(100, Math.max(10, rawScore));
 
   let tier = PRIORITY_TIERS.LOW;
@@ -189,11 +222,19 @@ export function calculatePriority({
     {
       key: 'community',
       label: 'Community Impact & Scope',
-      value: impactOpt.label,
-      score: impactOpt.score,
-      max: impactOpt.maxScore,
-      percentage: Math.round((impactOpt.score / impactOpt.maxScore) * 100),
-      explanation: impactOpt.description,
+      value:
+        supportCount > 0
+          ? `${impactOpt.label} (+${supportCount} supporters)`
+          : impactOpt.label,
+      score: effectiveCommunityScore,
+      max: 25,
+      percentage: Math.round((effectiveCommunityScore / 25) * 100),
+      explanation:
+        supportCount > 0
+          ? `${impactOpt.description} Calibrated with ${supportCount} unique citizen endorsement(s) (${supportPoints} pts).`
+          : impactOpt.description,
+      supportCount,
+      supportPoints,
     },
     {
       key: 'category',
@@ -214,8 +255,12 @@ export function calculatePriority({
   if (urgencyOpt.score >= 15) {
     rationaleParts.push(`escalating urgency (${urgencyOpt.label})`);
   }
-  if (impactOpt.score >= 15) {
-    rationaleParts.push(`high pedestrian or public corridor exposure (${impactOpt.label})`);
+  if (effectiveCommunityScore >= 15) {
+    if (supportCount >= 3) {
+      rationaleParts.push(`active community confirmation (${supportCount} verified citizens)`);
+    } else {
+      rationaleParts.push(`high pedestrian or public corridor exposure (${impactOpt.label})`);
+    }
   }
 
   const synthesizedReason =

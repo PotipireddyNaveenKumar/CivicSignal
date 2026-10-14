@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   PlusCircle,
   FileText,
+  MapPin,
   BarChart3,
   RotateCcw,
   X,
@@ -26,6 +27,11 @@ export default function Sidebar({
       id: 'submit',
       label: 'Report an Issue',
       icon: PlusCircle,
+    },
+    {
+      id: 'map',
+      label: 'Operations Map',
+      icon: MapPin,
     },
     {
       id: 'reports',
