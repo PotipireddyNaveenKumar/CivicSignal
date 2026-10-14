@@ -42,7 +42,23 @@ export function getStoredReports() {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      // Backfill coordinates, support counts, and assignments for sample items if loaded from older local sessions
+      const sampleMap = new Map(SAMPLE_REPORTS.map((s) => [s.id, s]));
+      const merged = parsed.map((item) => {
+        const sampleMatch = sampleMap.get(item.id);
+        if (sampleMatch && (!item.coordinates || typeof item.coordinates.lat !== 'number')) {
+          return {
+            ...item,
+            coordinates: sampleMatch.coordinates,
+            supportCount: item.supportCount || item.upvotes || sampleMatch.supportCount || 1,
+            supportedBy: item.supportedBy || sampleMatch.supportedBy || [],
+            assignedTo: item.assignedTo || sampleMatch.assignedTo || null,
+            resolutionNotes: item.resolutionNotes || sampleMatch.resolutionNotes || null,
+          };
+        }
+        return item;
+      });
+      return merged;
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(SAMPLE_REPORTS));
     return SAMPLE_REPORTS;
