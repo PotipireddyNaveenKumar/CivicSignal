@@ -135,6 +135,27 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Calculate role-specific queue counts
+  const triageQueueCount = reports.filter(
+    (r) => r.status === 'Open' || r.status === 'In Review'
+  ).length;
+
+  const activeWorkOrdersCount = reports.filter(
+    (r) => r.status === 'Assigned' || r.status === 'In Progress'
+  ).length;
+
+  // Role change handler that coordinates default view and filter presets
+  const handleRoleChange = (newRole) => {
+    setUserRole(newRole);
+    if (newRole === 'RESOLVER') {
+      setReportFilterPreset({ status: 'Assigned', priority: 'ALL' });
+    } else if (newRole === 'ADMIN') {
+      setReportFilterPreset({ status: 'Open', priority: 'ALL' });
+    } else {
+      setReportFilterPreset({ status: 'ALL', priority: 'ALL' });
+    }
+  };
+
   return (
     <div className="app-container">
       {/* Keyboard Accessible Skip Link */}
@@ -180,6 +201,9 @@ export default function App() {
         onResetDemoData={handleResetDemoData}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
+        userRole={userRole}
+        activeWorkOrdersCount={activeWorkOrdersCount}
+        triageQueueCount={triageQueueCount}
       />
 
       {/* Main Content Area */}
@@ -192,7 +216,7 @@ export default function App() {
             onNavigateToSubmit={() => handleNavigate('submit')}
             onPerformSearch={handlePerformSearch}
             userRole={userRole}
-            onRoleChange={setUserRole}
+            onRoleChange={handleRoleChange}
           />
 
           {/* VIEW: OVERVIEW */}
@@ -201,6 +225,7 @@ export default function App() {
               <MetricsOverview
                 reports={reports}
                 onFilterByMetric={handleFilterByMetric}
+                userRole={userRole}
               />
 
               {/* Recent prioritized reports slice */}
@@ -237,9 +262,10 @@ export default function App() {
             />
           )}
 
-          {/* VIEW: COMMUNITY REPORTS */}
+          {/* VIEW: COMMUNITY REPORTS / WORK ORDERS */}
           {currentView === 'reports' && (
             <ReportsList
+              key={`${reportFilterPreset.status}-${reportFilterPreset.priority}`}
               reports={reports}
               searchQuery={searchQuery}
               onSearchChange={handleSearchChange}

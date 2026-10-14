@@ -161,6 +161,33 @@ export function getCommunitySupportPoints(count = 0) {
 }
 
 /**
+ * Normalizes a numerical score into bounded integer range [10, 100].
+ * @param {any} score
+ * @returns {number}
+ */
+export function normalizeScore(score) {
+  const n = typeof score === 'number' && !isNaN(score) ? Math.round(score) : 10;
+  return Math.min(100, Math.max(10, n));
+}
+
+/**
+ * Returns the operational priority tier object corresponding to a given score.
+ * @param {number} score
+ * @returns {Object} Tier definition
+ */
+export function getTierFromScore(score) {
+  const normalized = normalizeScore(score);
+  if (normalized >= PRIORITY_TIERS.CRITICAL.minScore) {
+    return PRIORITY_TIERS.CRITICAL;
+  } else if (normalized >= PRIORITY_TIERS.HIGH.minScore) {
+    return PRIORITY_TIERS.HIGH;
+  } else if (normalized >= PRIORITY_TIERS.MEDIUM.minScore) {
+    return PRIORITY_TIERS.MEDIUM;
+  }
+  return PRIORITY_TIERS.LOW;
+}
+
+/**
  * Deterministically computes the priority score, tier, and full explanatory factors.
  * Incorporates bounded community support without double-counting impact.
  *
@@ -189,16 +216,8 @@ export function calculatePriority({
   const effectiveCommunityScore = Math.min(25, Math.max(impactOpt.score, supportPoints));
 
   const rawScore = safetyOpt.score + urgencyOpt.score + effectiveCommunityScore + categoryBase;
-  const score = Math.min(100, Math.max(10, rawScore));
-
-  let tier = PRIORITY_TIERS.LOW;
-  if (score >= PRIORITY_TIERS.CRITICAL.minScore) {
-    tier = PRIORITY_TIERS.CRITICAL;
-  } else if (score >= PRIORITY_TIERS.HIGH.minScore) {
-    tier = PRIORITY_TIERS.HIGH;
-  } else if (score >= PRIORITY_TIERS.MEDIUM.minScore) {
-    tier = PRIORITY_TIERS.MEDIUM;
-  }
+  const score = normalizeScore(rawScore);
+  const tier = getTierFromScore(score);
 
   const factors = [
     {

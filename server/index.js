@@ -9,6 +9,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Disable Express fingerprinting
+app.disable('x-powered-by');
+
 // Allowed civic categories matching client engine
 const ALLOWED_CATEGORIES = [
   'Roads',
@@ -20,9 +23,73 @@ const ALLOWED_CATEGORIES = [
   'Other',
 ];
 
+// Security & Header Middleware
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // Security & Request size limits (strict 50 KB limit)
 app.use(cors());
 app.use(express.json({ limit: '50kb' }));
+
+/**
+ * Lightweight in-memory rate limiter for AI interpretation endpoint.
+ * Bounded to 20 requests per IP per minute.
+ */
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 20;
+
+// Cleanup stale IPs periodically to prevent memory bloat
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, record] of rateLimitMap.entries()) {
+    if (now > record.resetTime) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}, 30 * 1000).unref();
+
+function rateLimiter(req, res, next) {
+  const ip = req.ip || req.connection?.remoteAddress || 'client';
+  const now = Date.now();
+  const record = rateLimitMap.get(ip);
+
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return next();
+  }
+
+  if (record.count >= MAX_REQUESTS_PER_WINDOW) {
+    const retryAfter = Math.max(1, Math.ceil((record.resetTime - now) / 1000));
+    res.setHeader('Retry-After', retryAfter);
+    return res.status(429).json({
+      success: false,
+      error: `Rate limit exceeded: Maximum ${MAX_REQUESTS_PER_WINDOW} requests per minute. Retry in ${retryAfter}s.`,
+    });
+  }
+
+  record.count += 1;
+  next();
+}
+
+/**
+ * Executes a promise with an enforced timeout.
+ */
+function withTimeout(promise, ms = 15000) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error('AI interpretation service timed out after 15 seconds.');
+      err.status = 504;
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Health check endpoint
@@ -38,6 +105,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     aiConfigured: hasKey,
     model: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
+    region: 'Andhra Pradesh Operations Center',
   });
 });
 
@@ -45,11 +113,11 @@ app.get('/api/health', (req, res) => {
  * AI Issue Interpretation Endpoint
  * Analyzes report title and description using structured output.
  */
-app.post('/api/ai/interpret-issue', async (req, res) => {
+app.post('/api/ai/interpret-issue', rateLimiter, async (req, res) => {
   try {
     const { title, description, category, location } = req.body || {};
 
-    // 1. Strict input validation
+    // 1. Strict input validation & size limits
     if (!title || typeof title !== 'string' || title.trim().length < 3) {
       return res.status(400).json({
         success: false,
@@ -57,10 +125,31 @@ app.post('/api/ai/interpret-issue', async (req, res) => {
       });
     }
 
+    if (title.length > 200) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error: Issue title cannot exceed 200 characters.',
+      });
+    }
+
     if (!description || typeof description !== 'string' || description.trim().length < 10) {
       return res.status(400).json({
         success: false,
         error: 'Validation error: Issue description must be at least 10 characters long.',
+      });
+    }
+
+    if (description.length > 3000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error: Issue description cannot exceed 3000 characters.',
+      });
+    }
+
+    if (location && typeof location === 'string' && location.length > 250) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation error: Location description cannot exceed 250 characters.',
       });
     }
 
@@ -90,7 +179,7 @@ Description:
 Identify observable physical hazards, suggest the most accurate category, assess deterioration urgency, highlight missing municipal details, and recommend a next step for public workers. Do not invent facts or claims not supported by the description.
 `.trim();
 
-    // 4. Invoke model with structured schema
+    // 4. Invoke model with structured schema and timeout
     const generateOptions = {
       contents: promptText,
       config: {
@@ -136,20 +225,26 @@ Identify observable physical hazards, suggest the most accurate category, assess
 
     let response;
     try {
-      response = await ai.models.generateContent({
-        model: primaryModel,
-        ...generateOptions,
-      });
+      response = await withTimeout(
+        ai.models.generateContent({
+          model: primaryModel,
+          ...generateOptions,
+        }),
+        15000
+      );
     } catch (primaryErr) {
-      if (primaryModel === 'gemini-3-flash-preview') {
+      if (primaryModel === 'gemini-3-flash-preview' && primaryErr.status !== 504) {
         console.warn(
           'Primary model gemini-3-flash-preview failed, attempting fallback to gemini-3.8-flash:',
           primaryErr.message
         );
-        response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          ...generateOptions,
-        });
+        response = await withTimeout(
+          ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            ...generateOptions,
+          }),
+          15000
+        );
       } else {
         throw primaryErr;
       }
@@ -174,7 +269,7 @@ Identify observable physical hazards, suggest the most accurate category, assess
       });
     }
 
-    // Sanitize category suggestion
+    // Sanitize category suggestion against whitelist
     let categorySuggestion = parsed.categorySuggestion || 'Other';
     if (!ALLOWED_CATEGORIES.includes(categorySuggestion)) {
       categorySuggestion = 'Other';
@@ -200,7 +295,13 @@ Identify observable physical hazards, suggest the most accurate category, assess
   } catch (err) {
     console.error('Gemini interpretation error:', err?.message || err);
 
-    // Differentiate rate limits, timeouts, and auth errors
+    if (err?.status === 504 || err?.name === 'TimeoutError') {
+      return res.status(504).json({
+        success: false,
+        error: 'AI interpretation service timed out after 15 seconds. Manual submission remains available.',
+      });
+    }
+
     const status = err?.status || err?.code || 500;
     const msg = err?.message || '';
 
@@ -223,6 +324,14 @@ Identify observable physical hazards, suggest the most accurate category, assess
       error: 'An error occurred while contacting the Gemini interpretation service.',
     });
   }
+});
+
+// Disallow non-POST methods on AI endpoint
+app.all('/api/ai/interpret-issue', (req, res) => {
+  res.status(405).json({
+    success: false,
+    error: `Method ${req.method} not allowed on this endpoint. Use POST.`,
+  });
 });
 
 // Start Express listener
