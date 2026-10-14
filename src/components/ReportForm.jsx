@@ -23,19 +23,19 @@ import {
 } from 'lucide-react';
 
 const LOCATION_PRESETS = [
-  { label: 'Downtown / Civic Center Plaza', lat: 30.2672, lng: -97.7431 },
-  { label: 'Lincoln Elementary / North Corridor', lat: 30.2747, lng: -97.7404 },
-  { label: 'East Pine Transit Route #14', lat: 30.2688, lng: -97.7342 },
-  { label: 'Heritage Way / Senior Center', lat: 30.2635, lng: -97.7478 },
-  { label: 'Riverside Community Park & Trail', lat: 30.2541, lng: -97.7456 },
-  { label: 'Elmwood Drainage Culvert', lat: 30.2812, lng: -97.7512 },
+  { label: 'Vijayawada — MG Road / Benz Circle Corridor', lat: 16.5062, lng: 80.6480 },
+  { label: 'Guntur — Arundelpet / Collectorate Area', lat: 16.3067, lng: 80.4365 },
+  { label: 'Vijayawada — Bhavanipuram Bus Station Route', lat: 16.5245, lng: 80.6012 },
+  { label: 'Amaravati — Seed Access Capital Corridor', lat: 16.5218, lng: 80.5280 },
+  { label: 'Visakhapatnam — Jagadamba / Hospital Corridor', lat: 17.7126, lng: 83.3032 },
+  { label: 'Vizianagaram — RTC Complex Approach', lat: 18.1158, lng: 83.4076 },
 ];
 
 export default function ReportForm({ onSubmitSuccess, onNavigateToReports }) {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Roads');
   const [location, setLocation] = useState('');
-  const [coordinates, setCoordinates] = useState({ lat: 30.2672, lng: -97.7431 });
+  const [coordinates, setCoordinates] = useState({ lat: 16.5062, lng: 80.6480 });
   const [description, setDescription] = useState('');
   const [safetyRiskId, setSafetyRiskId] = useState('moderate');
   const [urgencyId, setUrgencyId] = useState('progressive');

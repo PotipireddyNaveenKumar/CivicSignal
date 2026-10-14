@@ -1,7 +1,52 @@
 import { SAMPLE_REPORTS } from '../data/sampleReports.js';
 import { calculatePriority } from './priorityEngine.js';
 
-export const STORAGE_KEY = 'civicsignal_reports_v1';
+export const STORAGE_KEY = 'civicsignal_reports_v2';
+const LEGACY_STORAGE_KEY = 'civicsignal_reports_v1';
+
+/**
+ * Valid municipal issue lifecycle transitions.
+ */
+export const ALLOWED_STATUS_TRANSITIONS = {
+  Open: ['Open', 'In Review', 'Assigned'],
+  'In Review': ['In Review', 'Assigned', 'Open'],
+  Assigned: ['Assigned', 'In Progress', 'In Review'],
+  'In Progress': ['In Progress', 'Resolved', 'Assigned'],
+  Resolved: ['Resolved', 'In Review'],
+};
+
+/**
+ * Validates whether a requested status transition is allowed by municipal workflow rules.
+ * @param {string} currentStatus
+ * @param {string} nextStatus
+ * @returns {boolean}
+ */
+export function isValidStatusTransition(currentStatus, nextStatus) {
+  if (!currentStatus || !nextStatus) return false;
+  if (currentStatus === nextStatus) return true;
+  const allowed = ALLOWED_STATUS_TRANSITIONS[currentStatus];
+  return Array.isArray(allowed) && allowed.includes(nextStatus);
+}
+
+/**
+ * Validates geographic latitude and longitude bounds.
+ * @param {Object} coord
+ * @returns {boolean}
+ */
+export function isValidCoordinate(coord) {
+  if (!coord || typeof coord !== 'object') return false;
+  const { lat, lng } = coord;
+  return (
+    typeof lat === 'number' &&
+    typeof lng === 'number' &&
+    !isNaN(lat) &&
+    !isNaN(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
 
 /**
  * Custom error class for browser storage quota exhaustion.
@@ -31,35 +76,53 @@ export function isQuotaExceededError(err) {
 
 /**
  * Loads reports from localStorage or seeds with default demonstration data.
+ * Seamlessly migrates custom reports from v1 storage if present.
  * @returns {Array} List of reports
  */
 export function getStoredReports() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(SAMPLE_REPORTS));
-      return SAMPLE_REPORTS;
+      // Check for custom reports in legacy storage to preserve user data
+      const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      let customUserReports = [];
+      if (legacyRaw) {
+        try {
+          const legacyParsed = JSON.parse(legacyRaw);
+          if (Array.isArray(legacyParsed)) {
+            customUserReports = legacyParsed.filter((r) => r.isDemonstration === false);
+          }
+        } catch {
+          // ignore parsing error from legacy
+        }
+      }
+
+      const initialData = [...customUserReports, ...SAMPLE_REPORTS];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+      return initialData;
     }
+
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      // Backfill coordinates, support counts, and assignments for sample items if loaded from older local sessions
+      // Merge and backfill sample reports
       const sampleMap = new Map(SAMPLE_REPORTS.map((s) => [s.id, s]));
       const merged = parsed.map((item) => {
         const sampleMatch = sampleMap.get(item.id);
-        if (sampleMatch && (!item.coordinates || typeof item.coordinates.lat !== 'number')) {
+        if (sampleMatch && item.isDemonstration) {
+          // Update simulated records to Andhra Pradesh sample data
           return {
-            ...item,
-            coordinates: sampleMatch.coordinates,
-            supportCount: item.supportCount || item.upvotes || sampleMatch.supportCount || 1,
+            ...sampleMatch,
+            // Keep local user support if previously added in session
+            supportCount: Math.max(sampleMatch.supportCount, item.supportCount || item.upvotes || 0),
             supportedBy: item.supportedBy || sampleMatch.supportedBy || [],
-            assignedTo: item.assignedTo || sampleMatch.assignedTo || null,
-            resolutionNotes: item.resolutionNotes || sampleMatch.resolutionNotes || null,
+            status: item.status || sampleMatch.status,
           };
         }
         return item;
       });
       return merged;
     }
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(SAMPLE_REPORTS));
     return SAMPLE_REPORTS;
   } catch (error) {
@@ -156,6 +219,15 @@ export function updateReportStatus(id, newStatus, note = '') {
   const current = getStoredReports();
   const now = new Date().toISOString();
 
+  const target = current.find((r) => r.id === id);
+  if (!target) return current;
+
+  // Enforce permitted municipal lifecycle transitions
+  if (!isValidStatusTransition(target.status, newStatus)) {
+    console.warn(`Disallowed municipal status transition: ${target.status} -> ${newStatus}`);
+    return current;
+  }
+
   const updated = current.map((r) => {
     if (r.id !== id) return r;
     const newTimeline = [
@@ -163,7 +235,7 @@ export function updateReportStatus(id, newStatus, note = '') {
       {
         status: newStatus,
         date: now,
-        note: note || `Status updated to ${newStatus} in local demonstration queue.`,
+        note: note || `Status updated to ${newStatus} in operational triage queue.`,
       },
     ];
     return {

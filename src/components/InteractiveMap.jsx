@@ -116,11 +116,11 @@ export default function InteractiveMap({ reports = [], onSelectReport, onNavigat
     if (!mapContainerRef.current) return;
     if (mapInstanceRef.current) return;
 
-    // Default center on civic corridor
-    const defaultCenter = [30.2672, -97.7431];
+    // Default center on Andhra Pradesh, India (Vijayawada-Guntur capital region)
+    const defaultCenter = [16.5000, 80.6000];
     const map = L.map(mapContainerRef.current, {
       center: defaultCenter,
-      zoom: 13,
+      zoom: 11,
       zoomControl: true,
       attributionControl: true,
     });
